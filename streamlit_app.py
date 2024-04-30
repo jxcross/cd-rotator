@@ -1,6 +1,6 @@
 import streamlit as st
 st.set_page_config(layout="wide")
-from PIL import Image
+from PIL import Image, ImageDraw
 import os
 import numpy as np
 import math
@@ -68,17 +68,43 @@ def rotate_image(image, angle):
     
     return rotated_image
 
-def merge_images(background_image, patch_image, position, is_transparent=True):   
+# def merge_images(background_image, patch_image, position, is_transparent=True):   
+#     p_w, p_h = patch_image.size
+#     c_w, c_h = (int(p_w/2), int(p_h/2))
+#     new_position = (position[0]-c_w, position[1]-c_h)
+#     merged_image = background_image.copy()
+#     if is_transparent:
+#         patch_image = remove_background(patch_image)
+#         merged_image.paste(patch_image, new_position, patch_image)
+#     else:
+#         merged_image.paste(patch_image, new_position)
+
+#     return merged_image
+
+def merge_images(background_image, patch_image, position, radius, is_transparent=True):
     p_w, p_h = patch_image.size
-    c_w, c_h = (int(p_w/2), int(p_h/2))
-    new_position = (position[0]-c_w, position[1]-c_h)
+    #radius = 60
+    c_x, c_y = p_w//2, p_h//2  #position[0], position[1]
+    c_w, c_h = min(radius, p_w // 2), min(radius, p_h // 2)
+    
+    # 이미지를 원의 크기에 맞게 자르기
+    mask = Image.new('L', patch_image.size, 255)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((c_x - c_w, c_y - c_h, c_x + c_w, c_y + c_h), fill=0)
+    print("-"*100)
+    print(f"{c_x - c_w, c_y - c_h, c_x + c_w, c_y + c_h}")
+    patch_image.putalpha(mask)
+
     merged_image = background_image.copy()
+
     if is_transparent:
         patch_image = remove_background(patch_image)
-        merged_image.paste(patch_image, new_position, patch_image)
-    else:
-        merged_image.paste(patch_image, new_position)
-
+    
+    # 원의 중심을 기준으로 merge
+    p_w, p_h = patch_image.size
+    new_position = (position[0] - p_w // 2, position[1] - p_h // 2)
+    merged_image.paste(patch_image, new_position, patch_image)
+    
     return merged_image
 
 
@@ -140,12 +166,14 @@ def main():
         st.markdown("**붙일 위치**")
         patch_x = st.text_input("X 위치", value=center_x)
         patch_y = st.text_input("Y 위치", value=center_y)
+        radius = st.text_input("원의 반지름", value=50)
         is_transparent = st.checkbox("투명하게 붙이기", value=True)
         patch_button = st.button("MERGE")
         if patch_button:
             merged_image = merge_images(st.session_state["resized_bg_img"], 
                                         st.session_state["resized_patch_img"], 
                                         (int(patch_x), int(patch_y)), 
+                                        int(radius),
                                         is_transparent=is_transparent)
             st.session_state["merged_image"] = merged_image
         if "merged_image" in st.session_state:
