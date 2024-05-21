@@ -112,7 +112,7 @@ def get_image(title, id):
     # background 이미지 업로드
     img_file = st.file_uploader(title, type=["jpg", "jpeg", "png"], key=f"file_uploader_{id}")
     if img_file:
-        img_pil = Image.open(img_file)
+        img_pil = Image.open(img_file).convert("RGBA")
         #bg_width, bg_height = img_pil.size
         #st.image(img_pil)
         return img_pil
@@ -125,6 +125,154 @@ def resize_image(image, id):
     if resize_button:
         resized_image = image.resize((int(new_width), int(new_height)))
         return resized_image
+    
+
+# def apply_patch(background_image, patch_image):
+#     # 이미지를 읽습니다.
+#     # background_image = cv2.imread(background_image_path, cv2.IMREAD_UNCHANGED)
+#     # patch_image = cv2.imread(patch_image_path, cv2.IMREAD_UNCHANGED)
+
+#     # if background_image is None or patch_image is None:
+#     #     raise FileNotFoundError("하나 이상의 이미지 파일을 찾을 수 없습니다.")
+
+#     # 배경 이미지와 패치 이미지가 같은 크기인지 확인
+#     if background_image.shape[:2] != patch_image.shape[:2]:
+#         raise ValueError("배경 이미지와 패치 이미지는 같은 크기여야 합니다.")
+
+#     # 배경 이미지가 투명도 채널을 가지고 있는지 확인하고 없다면, 알파 채널을 추가
+#     if background_image.shape[2] == 3:
+#         background_image = cv2.cvtColor(background_image, cv2.COLOR_BGR2BGRA)
+
+#     # 패치 이미지가 투명도 채널을 가지고 있는지 확인하고 없다면, 알파 채널을 추가
+#     if patch_image.shape[2] == 3:
+#         patch_image = cv2.cvtColor(patch_image, cv2.COLOR_BGR2BGRA)
+
+#     # 배경 이미지의 색상 있는 부분을 마스크로 만듭니다.
+#     bg_mask = cv2.inRange(background_image[:, :, :3], (1, 1, 1), (255, 255, 255))
+
+#     # 배경 이미지의 색상 없는 부분을 마스크로 만듭니다.
+#     bg_mask_inv = cv2.bitwise_not(bg_mask)
+
+#     # 패치 이미지를 배경 이미지의 색상 있는 부분에 적용
+#     patch_applied = cv2.bitwise_and(patch_image, patch_image, mask=bg_mask)
+
+#     # 배경 이미지의 색상 없는 부분은 투명하게 처리
+#     transparent_patch = cv2.bitwise_and(patch_image, patch_image, mask=bg_mask_inv)
+#     transparent_patch[:, :, 3] = 0  # 알파 채널을 0으로 설정하여 투명하게 만듭니다.
+
+#     # 최종 이미지를 생성합니다.
+#     final_image = cv2.add(patch_applied, transparent_patch)
+
+#     # 이미지를 파일로 저장합니다.
+#     #cv2.imwrite(output_image_path, final_image)
+#     return final_image
+
+# from PIL import Image
+
+def make_hole(patch_image, radius):
+    p_w, p_h = patch_image.size
+    #radius = 60
+    c_x, c_y = p_w//2, p_h//2  #position[0], position[1]
+    c_w, c_h = min(radius, p_w // 2), min(radius, p_h // 2)
+    
+    # 이미지를 원의 크기에 맞게 자르기
+    mask = Image.new('L', patch_image.size, 255)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((c_x - c_w, c_y - c_h, c_x + c_w, c_y + c_h), fill=0)
+    print("-"*100)
+    print(f"{c_x - c_w, c_y - c_h, c_x + c_w, c_y + c_h}")
+    patch_image.putalpha(mask)
+    return patch_image
+
+def apply_patch(background_image, patch_image, position, radius):
+    # # 이미지를 읽습니다.
+    # background_image = Image.open(background_image_path).convert("RGBA")
+    # patch_image = Image.open(patch_image_path).convert("RGBA")
+
+    patch_image = make_hole(patch_image, radius)
+    patch_image.save("0.hole.png")
+
+    # 이미지 크기 확인
+    if background_image.size != patch_image.size:
+        raise ValueError("배경 이미지와 패치 이미지는 같은 크기여야 합니다.")
+
+    # 배경 이미지의 알파 채널을 분리합니다.
+    bg_alpha = background_image.split()[3]
+    bg_alpha.save("1.bg_alpha.png")
+ 
+    # 배경 이미지의 색상 있는 부분을 마스크로 만듭니다.
+    bg_mask = bg_alpha.point(lambda p: 255 if p > 0 else 0)
+    bg_mask.save("2.bg_mask.png")
+
+    # 배경 이미지의 색상 없는 부분을 반전한 마스크로 만듭니다.
+    bg_mask_inv = bg_mask.point(lambda p: 255 - p)
+    bg_mask_inv.save("3.bg_mask_inv.png")
+
+    # 패치 이미지를 배경 이미지의 색상 있는 부분에만 적용
+    patch_applied = Image.composite(patch_image, Image.new("RGBA", patch_image.size, (0, 0, 0, 0)), bg_mask)
+    patch_applied.save("4.patch_applied.png")
+
+    # 배경 이미지의 색상 없는 부분은 투명하게 처리
+    transparent_patch = Image.composite(Image.new("RGBA", patch_image.size, (0, 0, 0, 0)), patch_image, bg_mask_inv)
+    transparent_patch.save("5.transparent_patch.png")
+
+    # # 최종 이미지를 생성합니다.
+    # final_image = Image.alpha_composite(patch_applied, transparent_patch)
+    # final_image.save("6.final.png")
+
+    # 원의 중심을 기준으로 merge
+    p_w, p_h = patch_image.size
+    new_position = (position[0] - p_w // 2, position[1] - p_h // 2)
+    merged_image = background_image.copy()
+    merged_image.paste(transparent_patch, new_position, transparent_patch)
+
+    # 이미지를 파일로 저장합니다.
+    #final_image.save(output_image_path)
+    return merged_image
+
+
+
+# def apply_patch(background_image, patch_image, radius):
+#     # 이미지 크기 확인
+#     if background_image.size != patch_image.size:
+#         raise ValueError("배경 이미지와 패치 이미지는 같은 크기여야 합니다.")
+
+#     # 패치 이미지의 중심 좌표 계산
+#     width, height = patch_image.size
+#     center_x, center_y = width // 2, height // 2
+
+#     # 원형 마스크를 생성하여 중심에서 반지름 r 픽셀 만큼의 원 영역을 제거
+#     mask = Image.new("L", (width, height), 0)
+#     draw = ImageDraw.Draw(mask)
+#     draw.ellipse((center_x - radius, center_y - radius, center_x + radius, center_y + radius), fill=255)
+
+#     # 패치 이미지에 원형 마스크를 적용하여 해당 영역을 투명하게 처리
+#     patch_with_hole = patch_image.copy()
+#     patch_with_hole.putalpha(mask)
+
+#     # 배경 이미지의 알파 채널을 분리합니다.
+#     bg_alpha = background_image.split()[3]
+
+#     # 배경 이미지의 색상 있는 부분을 마스크로 만듭니다.
+#     bg_mask = bg_alpha.point(lambda p: 255 if p > 0 else 0)
+
+#     # 배경 이미지의 색상 없는 부분을 반전한 마스크로 만듭니다.
+#     bg_mask_inv = bg_mask.point(lambda p: 255 - p)
+
+#     # 패치 이미지를 배경 이미지의 색상 있는 부분에만 적용
+#     patch_applied = Image.composite(patch_with_hole, Image.new("RGBA", patch_image.size, (0, 0, 0, 0)), bg_mask)
+
+#     # 배경 이미지의 색상 없는 부분은 투명하게 처리
+#     transparent_patch = Image.composite(Image.new("RGBA", patch_image.size, (0, 0, 0, 0)), patch_with_hole, bg_mask_inv)
+
+#     # 최종 이미지를 생성합니다.
+#     final_image = Image.alpha_composite(patch_applied, transparent_patch)
+
+#     # 이미지를 파일로 저장합니다.
+#     #final_image.save(output_image_path)
+#     return final_image
+
+
 
 def main():
     st.title("이미지 합치기")
@@ -170,11 +318,15 @@ def main():
         is_transparent = st.checkbox("투명하게 붙이기", value=True)
         patch_button = st.button("MERGE")
         if patch_button:
-            merged_image = merge_images(st.session_state["resized_bg_img"], 
-                                        st.session_state["resized_patch_img"], 
-                                        (int(patch_x), int(patch_y)), 
-                                        int(radius),
-                                        is_transparent=is_transparent)
+            # merged_image = merge_images(st.session_state["resized_bg_img"], 
+            #                             st.session_state["resized_patch_img"], 
+            #                             (int(patch_x), int(patch_y)), 
+            #                             int(radius),
+            #                             is_transparent=is_transparent)
+            merged_image = apply_patch(st.session_state["resized_bg_img"],
+                                       st.session_state["resized_patch_img"],
+                                       (int(patch_x), int(patch_y)),
+                                       int(radius))
             st.session_state["merged_image"] = merged_image
         if "merged_image" in st.session_state:
             st.image(st.session_state["merged_image"])
